@@ -40,7 +40,22 @@ function activate(context) {
   const disposable = vscode.commands.registerCommand("mars-extension.helloWorld", () => {
     vscode.window.showInformationMessage("Hello World from mars-extension!");
   });
+  const runFile = vscode.commands.registerCommand("mars-extension.runFile", async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showErrorMessage("No active file.");
+      return;
+    }
+    const document = editor.document;
+    if (document.isUntitled) {
+      vscode.window.showErrorMessage("Please save the file first.");
+      return;
+    }
+    await document.save();
+    vscode.window.showInformationMessage(`Running: ${document.fileName}`);
+  });
   context.subscriptions.push(disposable);
+  context.subscriptions.push(runFile);
 }
 function deactivate() {
 }

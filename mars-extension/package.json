@@ -18,6 +18,11 @@
       {
         "command": "mars-extension.helloWorld",
         "title": "Hello World"
+      },
+
+      {
+        "command": "mars-extension.runFile",
+        "title": "Mars: Run Current File"
       }
     ]
   },
