@@ -1,21 +1,11 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
+import { spawn } from 'node:child_process';
+import * as path from 'node:path';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+	const output = vscode.window.createOutputChannel('MARS');
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "mars-extension" is now active!');
-
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('mars-extension.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
+	const helloWorld = vscode.commands.registerCommand('mars-extension.helloWorld', () => {
 		vscode.window.showInformationMessage('Hello World from mars-extension!');
 	});
 
@@ -36,12 +26,57 @@ export function activate(context: vscode.ExtensionContext) {
 
 		await document.save();
 
-		vscode.window.showInformationMessage(`Running: ${document.fileName}`);
+		const config = vscode.workspace.getConfiguration('mars-extension');
+		const marsJarPath = config.get<string>('marsJarPath', '');
+		const javaPath = config.get<string>('javaPath', 'java');
+
+		if (!marsJarPath) {
+			vscode.window.showErrorMessage('Set mars-extension.marsJarPath in Settings first.');
+			return;
+		}
+
+		const filePath = document.uri.fsPath;
+		const fileDir = path.dirname(filePath);
+
+		output.clear();
+		output.show(true);
+		output.appendLine(`Running ${path.basename(filePath)}...`);
+		output.appendLine(`Command: ${javaPath} -jar ${marsJarPath} nc ${filePath}`);
+		output.appendLine('');
+
+		const child = spawn(
+			javaPath,
+			['-jar', marsJarPath, 'nc', filePath],
+			{ cwd: fileDir }
+		);
+
+		child.stdout.on('data', (data: Buffer) => {
+			output.append(data.toString());
+		});
+
+		child.stderr.on('data', (data: Buffer) => {
+			output.append(data.toString());
+		});
+
+		child.on('error', (error: Error) => {
+			output.appendLine('');
+			output.appendLine(`Failed to start MARS: ${error.message}`);
+			vscode.window.showErrorMessage('Failed to start MARS. Check your Java path and MARS jar path.');
+		});
+
+		child.on('close', (code: number | null) => {
+			output.appendLine('');
+			output.appendLine(`Process exited with code ${code ?? 'null'}`);
+
+			if (code === 0) {
+				vscode.window.showInformationMessage('MARS run finished successfully.');
+			} else {
+				vscode.window.showErrorMessage(`MARS exited with code ${code ?? 'unknown'}.`);
+			}
+		});
 	});
 
-	context.subscriptions.push(disposable);
-	context.subscriptions.push(runFile);
+	context.subscriptions.push(helloWorld, runFile, output);
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}

@@ -35,9 +35,11 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode = __toESM(require("vscode"));
+var import_node_child_process = require("node:child_process");
+var path = __toESM(require("node:path"));
 function activate(context) {
-  console.log('Congratulations, your extension "mars-extension" is now active!');
-  const disposable = vscode.commands.registerCommand("mars-extension.helloWorld", () => {
+  const output = vscode.window.createOutputChannel("MARS");
+  const helloWorld = vscode.commands.registerCommand("mars-extension.helloWorld", () => {
     vscode.window.showInformationMessage("Hello World from mars-extension!");
   });
   const runFile = vscode.commands.registerCommand("mars-extension.runFile", async () => {
@@ -52,10 +54,47 @@ function activate(context) {
       return;
     }
     await document.save();
-    vscode.window.showInformationMessage(`Running: ${document.fileName}`);
+    const config = vscode.workspace.getConfiguration("mars-extension");
+    const marsJarPath = config.get("marsJarPath", "");
+    const javaPath = config.get("javaPath", "java");
+    if (!marsJarPath) {
+      vscode.window.showErrorMessage("Set mars-extension.marsJarPath in Settings first.");
+      return;
+    }
+    const filePath = document.uri.fsPath;
+    const fileDir = path.dirname(filePath);
+    output.clear();
+    output.show(true);
+    output.appendLine(`Running ${path.basename(filePath)}...`);
+    output.appendLine(`Command: ${javaPath} -jar ${marsJarPath} nc ${filePath}`);
+    output.appendLine("");
+    const child = (0, import_node_child_process.spawn)(
+      javaPath,
+      ["-jar", marsJarPath, "nc", filePath],
+      { cwd: fileDir }
+    );
+    child.stdout.on("data", (data) => {
+      output.append(data.toString());
+    });
+    child.stderr.on("data", (data) => {
+      output.append(data.toString());
+    });
+    child.on("error", (error) => {
+      output.appendLine("");
+      output.appendLine(`Failed to start MARS: ${error.message}`);
+      vscode.window.showErrorMessage("Failed to start MARS. Check your Java path and MARS jar path.");
+    });
+    child.on("close", (code) => {
+      output.appendLine("");
+      output.appendLine(`Process exited with code ${code ?? "null"}`);
+      if (code === 0) {
+        vscode.window.showInformationMessage("MARS run finished successfully.");
+      } else {
+        vscode.window.showErrorMessage(`MARS exited with code ${code ?? "unknown"}.`);
+      }
+    });
   });
-  context.subscriptions.push(disposable);
-  context.subscriptions.push(runFile);
+  context.subscriptions.push(helloWorld, runFile, output);
 }
 function deactivate() {
 }
