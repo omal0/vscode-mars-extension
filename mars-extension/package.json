@@ -12,7 +12,9 @@
   "activationEvents": [
     "onCommand:mars-extension.helloWorld",
     "onCommand:mars-extension.runFile",
-    "onView:marsRegistersView"
+    "onView:marsRegistersView",
+    "onView:marsMemoryView",
+    "onDebug"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -27,6 +29,7 @@
         "icon": "$(play)"
       }
     ],
+    
     "configuration": {
       "title": "Mars Extension",
       "properties": {
@@ -39,6 +42,22 @@
           "type": "string",
           "default": "java",
           "description": "Path to the Java executable."
+        },
+        "mars-extension.displayFormat": {
+          "type": "string",
+          "enum": ["hex", "dec", "both"],
+          "default": "both",
+          "description": "How registers and memory values should be displayed."
+        },
+        "mars-extension.memoryStartAddress": {
+          "type": "string",
+          "default": "0x10010000",
+          "description": "Start address for the memory view."
+        },
+        "mars-extension.memoryEndAddress": {
+          "type": "string",
+          "default": "0x10010040",
+          "description": "End address for the memory view."
         }
       }
     },
@@ -62,7 +81,45 @@
         "group": "navigation"
       }
     ]
+  },
+    "debuggers": [
+  {
+    "type": "mars",
+    "label": "MARS Debugger",
+    "configurationAttributes": {
+      "launch": {
+        "properties": {
+          "program": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "initialConfigurations": [
+      {
+        "type": "mars",
+        "request": "launch",
+        "name": "Debug MIPS with MARS",
+        "program": "${file}"
+      }
+    ]
   }
+  ],
+  "languages": [
+    {
+      "id": "mips",
+      "aliases": ["MIPS", "mips"],
+      "extensions": [".asm", ".s"],
+      "configuration": "./language-configuration.json"
+    }
+  ],
+  "grammars": [
+    {
+      "language": "mips",
+      "scopeName": "source.mips",
+      "path": "./syntaxes/mips.tmLanguage.json"
+    }
+  ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

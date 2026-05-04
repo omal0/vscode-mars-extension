@@ -39,17 +39,27 @@ var import_child_process = require("child_process");
 
 // src/registers/RegistersProvider.ts
 var vscode = __toESM(require("vscode"));
+function formatValue(value, displayFormat = "both") {
+  const hex = `0x${(value >>> 0).toString(16).padStart(8, "0")}`;
+  if (displayFormat === "hex") {
+    return hex;
+  }
+  if (displayFormat === "dec") {
+    return `${value}`;
+  }
+  return `${hex} (${value})`;
+}
 var RegisterItem = class extends vscode.TreeItem {
   constructor(reg) {
     super(reg.name, vscode.TreeItemCollapsibleState.None);
     this.reg = reg;
-    const hex = `0x${(reg.value >>> 0).toString(16).padStart(8, "0")}`;
-    this.description = `${hex} (${reg.value})`;
-    this.tooltip = `${reg.name}: ${reg.value}`;
+    const formattedValue = formatValue(reg.value, reg.displayFormat);
+    this.description = formattedValue;
+    this.tooltip = `${reg.name}: ${formattedValue}`;
     if (reg.changed) {
       this.label = `${reg.name} *`;
-      this.description = `CHANGED  ${hex} (${reg.value})`;
-      this.tooltip = `${reg.name}: ${reg.value} (changed)`;
+      this.description = `CHANGED  ${formattedValue}`;
+      this.tooltip = `${reg.name}: ${formattedValue} (changed)`;
     }
   }
 };
@@ -90,17 +100,27 @@ var RegistersProvider = class {
 
 // src/memory/MemoryProvider.ts
 var vscode2 = __toESM(require("vscode"));
+function formatValue2(value, displayFormat = "both") {
+  const hex = `0x${(value >>> 0).toString(16).padStart(8, "0")}`;
+  if (displayFormat === "hex") {
+    return hex;
+  }
+  if (displayFormat === "dec") {
+    return `${value}`;
+  }
+  return `${hex} (${value})`;
+}
 var MemoryItem = class extends vscode2.TreeItem {
   constructor(mem) {
     super(mem.address, vscode2.TreeItemCollapsibleState.None);
     this.mem = mem;
-    const hex = `0x${(mem.value >>> 0).toString(16).padStart(8, "0")}`;
-    this.description = `${hex} (${mem.value})`;
-    this.tooltip = `${mem.address}: ${mem.value}`;
+    const formattedValue = formatValue2(mem.value, mem.displayFormat);
+    this.description = formattedValue;
+    this.tooltip = `${mem.address}: ${formattedValue}`;
     if (mem.changed) {
       this.label = `${mem.address} *`;
-      this.description = `CHANGED  ${hex} (${mem.value})`;
-      this.tooltip = `${mem.address}: ${mem.value} (changed)`;
+      this.description = `CHANGED  ${formattedValue}`;
+      this.tooltip = `${mem.address}: ${formattedValue} (changed)`;
     }
   }
 };
@@ -140,6 +160,142 @@ var MemoryProvider = class {
 };
 
 // src/extension.ts
+var INSTRUCTION_HELP = {
+  add: "`add $d, $s, $t`\n\nAdds two registers: `$d = $s + $t`.",
+  addi: "`addi $t, $s, imm`\n\nAdds an immediate value: `$t = $s + imm`.",
+  sub: "`sub $d, $s, $t`\n\nSubtracts registers: `$d = $s - $t`.",
+  mul: "`mul $d, $s, $t`\n\nMultiplies registers: `$d = $s * $t`.",
+  div: "`div $s, $t`\n\nDivides `$s / $t`. Quotient goes to `LO`, remainder goes to `HI`.",
+  rem: "`rem $d, $s, $t`\n\nStores remainder: `$d = $s % $t`.",
+  li: "`li $t, imm`\n\nLoads an immediate value into a register.",
+  la: "`la $t, label`\n\nLoads the address of a label into a register.",
+  move: "`move $d, $s`\n\nCopies one register into another.",
+  lw: "`lw $t, offset($s)`\n\nLoads a word from memory.",
+  sw: "`sw $t, offset($s)`\n\nStores a word into memory.",
+  beq: "`beq $s, $t, label`\n\nBranches if `$s == $t`.",
+  bne: "`bne $s, $t, label`\n\nBranches if `$s != $t`.",
+  j: "`j label`\n\nJumps to a label.",
+  jal: "`jal label`\n\nJumps to a label and saves return address in `$ra`.",
+  jr: "`jr $ra`\n\nJumps to the address stored in a register.",
+  syscall: "`syscall`\n\nRuns the system call selected by `$v0`.",
+  nop: "`nop`\n\nNo operation."
+};
+var REGISTER_HELP = {
+  "$zero": "Always contains `0`.",
+  "$at": "Assembler temporary register.",
+  "$v0": "Return value register / syscall code.",
+  "$v1": "Return value register.",
+  "$a0": "Argument register 0.",
+  "$a1": "Argument register 1.",
+  "$a2": "Argument register 2.",
+  "$a3": "Argument register 3.",
+  "$t0": "Temporary register.",
+  "$t1": "Temporary register.",
+  "$t2": "Temporary register.",
+  "$t3": "Temporary register.",
+  "$t4": "Temporary register.",
+  "$t5": "Temporary register.",
+  "$t6": "Temporary register.",
+  "$t7": "Temporary register.",
+  "$s0": "Saved register.",
+  "$s1": "Saved register.",
+  "$s2": "Saved register.",
+  "$s3": "Saved register.",
+  "$s4": "Saved register.",
+  "$s5": "Saved register.",
+  "$s6": "Saved register.",
+  "$s7": "Saved register.",
+  "$t8": "Temporary register.",
+  "$t9": "Temporary register.",
+  "$gp": "Global pointer.",
+  "$sp": "Stack pointer.",
+  "$fp": "Frame pointer.",
+  "$ra": "Return address."
+};
+var DIRECTIVE_HELP = {
+  ".data": "Starts the data segment.",
+  ".text": "Starts the code/text segment.",
+  ".globl": "Marks a label as globally visible.",
+  ".word": "Stores one or more 32-bit values.",
+  ".byte": "Stores one or more bytes.",
+  ".space": "Reserves a number of bytes.",
+  ".asciiz": "Stores a null-terminated string.",
+  ".ascii": "Stores a string without a null terminator."
+};
+var SYSCALL_HELP = {
+  "1": "Print integer. Uses `$a0`.",
+  "4": "Print string. Uses `$a0` as string address.",
+  "5": "Read integer. Result goes in `$v0`.",
+  "8": "Read string. Uses `$a0` buffer address and `$a1` length.",
+  "10": "Exit program.",
+  "11": "Print character. Uses `$a0`."
+};
+var KNOWN_INSTRUCTIONS = /* @__PURE__ */ new Set([
+  "add",
+  "addu",
+  "addi",
+  "addiu",
+  "sub",
+  "subu",
+  "mul",
+  "div",
+  "rem",
+  "and",
+  "andi",
+  "or",
+  "ori",
+  "xor",
+  "nor",
+  "sll",
+  "srl",
+  "sra",
+  "slt",
+  "slti",
+  "lw",
+  "sw",
+  "lb",
+  "sb",
+  "lh",
+  "sh",
+  "li",
+  "la",
+  "move",
+  "mfhi",
+  "mflo",
+  "beq",
+  "bne",
+  "blt",
+  "ble",
+  "bgt",
+  "bge",
+  "j",
+  "jal",
+  "jr",
+  "syscall",
+  "nop"
+]);
+var DIRECTIVES = /* @__PURE__ */ new Set([
+  ".data",
+  ".text",
+  ".globl",
+  ".word",
+  ".byte",
+  ".half",
+  ".space",
+  ".asciiz",
+  ".ascii",
+  ".align"
+]);
+var BRANCH_OR_JUMP_INSTRUCTIONS = /* @__PURE__ */ new Set([
+  "beq",
+  "bne",
+  "blt",
+  "ble",
+  "bgt",
+  "bge",
+  "j",
+  "jal"
+]);
 var REGISTERS_TO_READ = [
   "zero",
   "at",
@@ -174,9 +330,6 @@ var REGISTERS_TO_READ = [
   "fp",
   "ra"
 ];
-var MEMORY_RANGES_TO_READ = [
-  "0x10010000-0x10010040"
-];
 function activate(context) {
   const output = vscode3.window.createOutputChannel("MARS");
   const registersProvider = new RegistersProvider();
@@ -186,6 +339,198 @@ function activate(context) {
   const helloWorld = vscode3.commands.registerCommand("mars-extension.helloWorld", () => {
     vscode3.window.showInformationMessage("Hello World from mars-extension!");
   });
+  const hoverProvider = vscode3.languages.registerHoverProvider("mips", {
+    provideHover(document, position) {
+      const range = document.getWordRangeAtPosition(position, /[\.$]?[A-Za-z_][A-Za-z0-9_]*|[0-9]+/);
+      if (!range) {
+        return void 0;
+      }
+      const word = document.getText(range);
+      if (INSTRUCTION_HELP[word]) {
+        return new vscode3.Hover(new vscode3.MarkdownString(INSTRUCTION_HELP[word]), range);
+      }
+      if (REGISTER_HELP[word]) {
+        return new vscode3.Hover(new vscode3.MarkdownString(REGISTER_HELP[word]), range);
+      }
+      if (DIRECTIVE_HELP[word]) {
+        return new vscode3.Hover(new vscode3.MarkdownString(DIRECTIVE_HELP[word]), range);
+      }
+      const lineText = document.lineAt(position.line).text;
+      const syscallMatch = lineText.match(/li\s+\$v0,\s*(\d+)/);
+      if (syscallMatch && syscallMatch[1] === word && SYSCALL_HELP[word]) {
+        return new vscode3.Hover(
+          new vscode3.MarkdownString(`**Syscall ${word}**
+
+${SYSCALL_HELP[word]}`),
+          range
+        );
+      }
+      return void 0;
+    }
+  });
+  const completionProvider = vscode3.languages.registerCompletionItemProvider(
+    "mips",
+    {
+      provideCompletionItems(document, position) {
+        const completions = [];
+        for (const [instruction, help] of Object.entries(INSTRUCTION_HELP)) {
+          const item = new vscode3.CompletionItem(
+            instruction,
+            vscode3.CompletionItemKind.Function
+          );
+          item.detail = "MIPS instruction";
+          item.documentation = new vscode3.MarkdownString(help);
+          item.insertText = instruction;
+          completions.push(item);
+        }
+        for (const [register, help] of Object.entries(REGISTER_HELP)) {
+          const item = new vscode3.CompletionItem(
+            register,
+            vscode3.CompletionItemKind.Variable
+          );
+          item.detail = "MIPS register";
+          item.documentation = new vscode3.MarkdownString(help);
+          item.insertText = register;
+          completions.push(item);
+        }
+        for (const [directive, help] of Object.entries(DIRECTIVE_HELP)) {
+          const item = new vscode3.CompletionItem(
+            directive,
+            vscode3.CompletionItemKind.Keyword
+          );
+          item.detail = "MIPS directive";
+          item.documentation = new vscode3.MarkdownString(help);
+          item.insertText = directive;
+          completions.push(item);
+        }
+        for (const [code, help] of Object.entries(SYSCALL_HELP)) {
+          const item = new vscode3.CompletionItem(
+            `syscall ${code}`,
+            vscode3.CompletionItemKind.Value
+          );
+          item.detail = `Syscall ${code}`;
+          item.documentation = new vscode3.MarkdownString(help);
+          item.insertText = code;
+          completions.push(item);
+        }
+        const labels = collectLabels(document);
+        for (const label of labels) {
+          const item = new vscode3.CompletionItem(
+            label,
+            vscode3.CompletionItemKind.Reference
+          );
+          item.detail = "MIPS label";
+          item.insertText = label;
+          completions.push(item);
+        }
+        return completions;
+      }
+    },
+    "$",
+    "."
+  );
+  context.subscriptions.push(completionProvider);
+  context.subscriptions.push(hoverProvider);
+  const diagnosticCollection = vscode3.languages.createDiagnosticCollection("mars");
+  const marsDiagnostics = vscode3.languages.createDiagnosticCollection("mars");
+  context.subscriptions.push(marsDiagnostics);
+  function refreshStaticDiagnostics(document) {
+    if (document.languageId !== "mips") {
+      marsDiagnostics.delete(document.uri);
+      return;
+    }
+    const diagnostics = collectStaticDiagnostics(document);
+    marsDiagnostics.set(document.uri, diagnostics);
+  }
+  if (vscode3.window.activeTextEditor) {
+    refreshStaticDiagnostics(vscode3.window.activeTextEditor.document);
+  }
+  context.subscriptions.push(
+    vscode3.workspace.onDidOpenTextDocument(refreshStaticDiagnostics),
+    vscode3.workspace.onDidChangeTextDocument((event) => {
+      refreshStaticDiagnostics(event.document);
+    }),
+    vscode3.workspace.onDidCloseTextDocument((document) => {
+      marsDiagnostics.delete(document.uri);
+    })
+  );
+  function refreshDiagnostics(document) {
+    if (document.languageId !== "mips") {
+      diagnosticCollection.delete(document.uri);
+      return;
+    }
+    const diagnostics = [];
+    for (let lineIndex = 0; lineIndex < document.lineCount; lineIndex++) {
+      const line = document.lineAt(lineIndex);
+      const textWithoutComment = line.text.split("#")[0].trim();
+      if (!textWithoutComment) {
+        continue;
+      }
+      let working = textWithoutComment;
+      const labelMatch = working.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+      if (labelMatch) {
+        working = labelMatch[2].trim();
+        if (!working) {
+          continue;
+        }
+      }
+      const firstToken = working.split(/\s+/)[0];
+      if (DIRECTIVES.has(firstToken)) {
+        continue;
+      }
+      if (!KNOWN_INSTRUCTIONS.has(firstToken)) {
+        const start = line.text.indexOf(firstToken);
+        const range = new vscode3.Range(
+          lineIndex,
+          start,
+          lineIndex,
+          start + firstToken.length
+        );
+        diagnostics.push(
+          new vscode3.Diagnostic(
+            range,
+            `Unknown MIPS instruction or directive: ${firstToken}`,
+            vscode3.DiagnosticSeverity.Error
+          )
+        );
+      }
+    }
+    diagnosticCollection.set(document.uri, diagnostics);
+  }
+  if (vscode3.window.activeTextEditor) {
+    refreshDiagnostics(vscode3.window.activeTextEditor.document);
+  }
+  context.subscriptions.push(
+    diagnosticCollection,
+    vscode3.workspace.onDidOpenTextDocument(refreshDiagnostics),
+    vscode3.workspace.onDidChangeTextDocument((event) => {
+      refreshDiagnostics(event.document);
+    }),
+    vscode3.workspace.onDidCloseTextDocument((document) => {
+      diagnosticCollection.delete(document.uri);
+    })
+  );
+  const debugConfigProvider = vscode3.debug.registerDebugConfigurationProvider("mars", {
+    resolveDebugConfiguration(folder, config) {
+      if (!config.type) {
+        config.type = "mars";
+      }
+      if (!config.name) {
+        config.name = "Debug MIPS with MARS";
+      }
+      if (!config.request) {
+        config.request = "launch";
+      }
+      if (!config.program) {
+        const editor = vscode3.window.activeTextEditor;
+        if (editor) {
+          config.program = editor.document.uri.fsPath;
+        }
+      }
+      return config;
+    }
+  });
+  context.subscriptions.push(debugConfigProvider);
   const runFile = vscode3.commands.registerCommand("mars-extension.runFile", async () => {
     const editor = vscode3.window.activeTextEditor;
     if (!editor) {
@@ -202,12 +547,16 @@ function activate(context) {
       return;
     }
     const filePath = document.uri.fsPath;
+    marsDiagnostics.delete(document.uri);
     if (!filePath.endsWith(".asm")) {
       vscode3.window.showErrorMessage("Please open a .asm file.");
       return;
     }
     await document.save();
     const config = vscode3.workspace.getConfiguration("mars-extension");
+    const memoryStart = config.get("memoryStartAddress", "0x10010000");
+    const memoryEnd = config.get("memoryEndAddress", "0x10010040");
+    const memoryRange = `${memoryStart}-${memoryEnd}`;
     const javaPath = config.get("javaPath", "java");
     const configuredJarPath = config.get("marsJarPath", "").trim();
     const bundledJarPath = vscode3.Uri.joinPath(
@@ -232,7 +581,7 @@ function activate(context) {
       "hex",
       "me",
       ...REGISTERS_TO_READ,
-      ...MEMORY_RANGES_TO_READ,
+      ...memoryRange,
       filePath
     ];
     output.appendLine(`Args: ${args.join(" ")}`);
@@ -246,8 +595,7 @@ function activate(context) {
       output.append(text);
     });
     child.stderr.on("data", (data) => {
-      const text = data.toString();
-      marsOutput += text;
+      marsOutput += data.toString();
     });
     child.on("error", (error) => {
       output.appendLine(`
@@ -257,8 +605,28 @@ Failed to start MARS: ${error.message}`);
     child.on("close", (code) => {
       output.appendLine(`
 Process exited with code ${code ?? "null"}`);
-      const registers = parseMarsRegisters(marsOutput);
-      const memory = parseMarsMemory(marsOutput);
+      const errors = parseMarsErrors(marsOutput, document);
+      const staticDiagnostics = collectStaticDiagnostics(document);
+      const marsErrors = parseMarsErrors(marsOutput, document);
+      const displayFormat = config.get("displayFormat", "both");
+      const registers = parseMarsRegisters(marsOutput).map((reg) => ({
+        ...reg,
+        displayFormat
+      }));
+      const memory = parseMarsMemory(marsOutput).map((mem) => ({
+        ...mem,
+        displayFormat
+      }));
+      marsDiagnostics.set(document.uri, [
+        ...staticDiagnostics,
+        ...marsErrors
+      ]);
+      if (errors.length > 0) {
+        marsDiagnostics.set(document.uri, errors);
+        vscode3.window.showErrorMessage(`MARS found ${errors.length} error(s).`);
+      } else {
+        marsDiagnostics.delete(document.uri);
+      }
       if (registers.length > 0) {
         registersProvider.setRegisters(registers);
       } else {
@@ -277,9 +645,127 @@ Process exited with code ${code ?? "null"}`);
       }
     });
   });
-  context.subscriptions.push(helloWorld, runFile, output);
+  const debugAdapterFactory = vscode3.debug.registerDebugAdapterDescriptorFactory("mars", {
+    createDebugAdapterDescriptor() {
+      return new vscode3.DebugAdapterExecutable("node", [
+        context.asAbsolutePath("dist/debugAdapter.js")
+      ]);
+    }
+  });
+  context.subscriptions.push(debugAdapterFactory);
+  context.subscriptions.push(helloWorld, runFile, output, debugAdapterFactory);
 }
 function deactivate() {
+}
+function collectStaticDiagnostics(document) {
+  const diagnostics = [];
+  const labels = /* @__PURE__ */ new Map();
+  const labelUses = [];
+  for (let lineIndex = 0; lineIndex < document.lineCount; lineIndex++) {
+    const line = document.lineAt(lineIndex);
+    const noComment = line.text.split("#")[0];
+    let working = noComment.trim();
+    if (!working) {
+      continue;
+    }
+    const labelMatch = working.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
+    if (labelMatch) {
+      const label = labelMatch[1];
+      const labelStart = line.text.indexOf(label);
+      const labelRange = new vscode3.Range(
+        lineIndex,
+        labelStart,
+        lineIndex,
+        labelStart + label.length
+      );
+      if (labels.has(label)) {
+        diagnostics.push(
+          new vscode3.Diagnostic(
+            labelRange,
+            `Duplicate label: ${label}`,
+            vscode3.DiagnosticSeverity.Error
+          )
+        );
+      } else {
+        labels.set(label, labelRange);
+      }
+      working = labelMatch[2].trim();
+      if (!working) {
+        continue;
+      }
+    }
+    const firstToken = working.split(/\s+/)[0];
+    if (DIRECTIVES.has(firstToken)) {
+      continue;
+    }
+    if (!KNOWN_INSTRUCTIONS.has(firstToken)) {
+      const start = line.text.indexOf(firstToken);
+      const range = new vscode3.Range(
+        lineIndex,
+        start,
+        lineIndex,
+        start + firstToken.length
+      );
+      diagnostics.push(
+        new vscode3.Diagnostic(
+          range,
+          `Unknown MIPS instruction or directive: ${firstToken}`,
+          vscode3.DiagnosticSeverity.Error
+        )
+      );
+      continue;
+    }
+    if (BRANCH_OR_JUMP_INSTRUCTIONS.has(firstToken)) {
+      const possibleLabel = getPossibleBranchLabel(firstToken, working);
+      if (possibleLabel) {
+        const labelStart = line.text.indexOf(possibleLabel);
+        const range = new vscode3.Range(
+          lineIndex,
+          labelStart,
+          lineIndex,
+          labelStart + possibleLabel.length
+        );
+        labelUses.push({
+          label: possibleLabel,
+          range
+        });
+      }
+    }
+  }
+  for (const use of labelUses) {
+    if (!labels.has(use.label)) {
+      diagnostics.push(
+        new vscode3.Diagnostic(
+          use.range,
+          `Undefined label: ${use.label}`,
+          vscode3.DiagnosticSeverity.Error
+        )
+      );
+    }
+  }
+  return diagnostics;
+}
+function collectLabels(document) {
+  const labels = [];
+  for (let i = 0; i < document.lineCount; i++) {
+    const line = document.lineAt(i).text.split("#")[0];
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):/);
+    if (match) {
+      labels.push(match[1]);
+    }
+  }
+  return labels;
+}
+function getPossibleBranchLabel(instruction, line) {
+  const withoutInstruction = line.slice(instruction.length).trim();
+  const parts = withoutInstruction.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    return void 0;
+  }
+  if (instruction === "j" || instruction === "jal") {
+    return parts[0];
+  }
+  return parts[parts.length - 1];
 }
 function parseMarsRegisters(output) {
   const registers = [];
@@ -338,6 +824,42 @@ function parseMarsMemory(output) {
     seen.add(address);
   }
   return sortMemory(memory);
+}
+function parseMarsErrors(output, document) {
+  const diagnostics = [];
+  const lines = output.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(/line\s+(\d+)\s+column\s+(\d+)\s*:\s*(.*)$/i) || trimmed.match(/line\s+(\d+)\s*:\s*(.*)$/i);
+    if (!match) {
+      continue;
+    }
+    const lineNumber = Number(match[1]);
+    const columnNumber = match.length >= 4 ? Number(match[2]) : 1;
+    const message = match.length >= 4 ? match[3] : match[2];
+    const zeroBasedLine = Math.max(0, lineNumber - 1);
+    const zeroBasedColumn = Math.max(0, columnNumber - 1);
+    if (zeroBasedLine >= document.lineCount) {
+      continue;
+    }
+    const textLine = document.lineAt(zeroBasedLine);
+    const startChar = Math.min(zeroBasedColumn, textLine.text.length);
+    const endChar = Math.min(startChar + 1, textLine.text.length);
+    const range = new vscode3.Range(
+      zeroBasedLine,
+      startChar,
+      zeroBasedLine,
+      endChar
+    );
+    diagnostics.push(
+      new vscode3.Diagnostic(
+        range,
+        message || trimmed,
+        vscode3.DiagnosticSeverity.Error
+      )
+    );
+  }
+  return diagnostics;
 }
 function sortRegisters(registers) {
   const order = [

@@ -1,26 +1,44 @@
 import * as vscode from 'vscode';
 
+export type DisplayFormat = 'hex' | 'dec' | 'both';
+
 export type MemoryValue = {
 	address: string;
 	value: number;
+	displayFormat?: DisplayFormat;
 };
 
 type MemoryDisplayValue = MemoryValue & {
 	changed: boolean;
 };
 
+function formatValue(value: number, displayFormat: DisplayFormat = 'both'): string {
+	const hex = `0x${(value >>> 0).toString(16).padStart(8, '0')}`;
+
+	if (displayFormat === 'hex') {
+		return hex;
+	}
+
+	if (displayFormat === 'dec') {
+		return `${value}`;
+	}
+
+	return `${hex} (${value})`;
+}
+
 class MemoryItem extends vscode.TreeItem {
 	constructor(public readonly mem: MemoryDisplayValue) {
 		super(mem.address, vscode.TreeItemCollapsibleState.None);
 
-		const hex = `0x${(mem.value >>> 0).toString(16).padStart(8, '0')}`;
-		this.description = `${hex} (${mem.value})`;
-		this.tooltip = `${mem.address}: ${mem.value}`;
+		const formattedValue = formatValue(mem.value, mem.displayFormat);
+
+		this.description = formattedValue;
+		this.tooltip = `${mem.address}: ${formattedValue}`;
 
 		if (mem.changed) {
 			this.label = `${mem.address} *`;
-			this.description = `CHANGED  ${hex} (${mem.value})`;  // 👈 step 5 goes here
-			this.tooltip = `${mem.address}: ${mem.value} (changed)`;
+			this.description = `CHANGED  ${formattedValue}`;
+			this.tooltip = `${mem.address}: ${formattedValue} (changed)`;
 		}
 	}
 }

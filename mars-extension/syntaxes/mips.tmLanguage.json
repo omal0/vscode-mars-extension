@@ -1,0 +1,82 @@
+{
+    "scopeName": "source.mips",
+    "name": "MIPS",
+    "patterns": [
+      { "include": "#comments" },
+      { "include": "#strings" },
+      { "include": "#directives" },
+      { "include": "#labels" },
+      { "include": "#registers" },
+      { "include": "#numbers" },
+      { "include": "#instructions" }
+    ],
+    "repository": {
+      "comments": {
+        "patterns": [
+          {
+            "name": "comment.line.number-sign.mips",
+            "match": "#.*$"
+          }
+        ]
+      },
+      "strings": {
+        "patterns": [
+          {
+            "name": "string.quoted.double.mips",
+            "begin": "\"",
+            "end": "\"",
+            "patterns": [
+              {
+                "name": "constant.character.escape.mips",
+                "match": "\\\\."
+              }
+            ]
+          }
+        ]
+      },
+      "directives": {
+        "patterns": [
+          {
+            "name": "keyword.control.directive.mips",
+            "match": "\\.(data|text|globl|word|byte|half|space|asciiz|ascii|align)\\b"
+          }
+        ]
+      },
+      "labels": {
+        "patterns": [
+          {
+            "name": "entity.name.label.mips",
+            "match": "^\\s*([A-Za-z_][A-Za-z0-9_]*):"
+          }
+        ]
+      },
+      "registers": {
+        "patterns": [
+          {
+            "name": "variable.language.register.mips",
+            "match": "\\$(zero|at|v[01]|a[0-3]|t[0-9]|s[0-7]|k[01]|gp|sp|fp|ra)\\b"
+          }
+        ]
+      },
+      "numbers": {
+        "patterns": [
+          {
+            "name": "constant.numeric.hex.mips",
+            "match": "\\b0x[0-9a-fA-F]+\\b"
+          },
+          {
+            "name": "constant.numeric.decimal.mips",
+            "match": "\\b-?[0-9]+\\b"
+          }
+        ]
+      },
+      "instructions": {
+        "patterns": [
+          {
+            "name": "keyword.instruction.mips",
+            "match": "\\b(add|addu|addi|addiu|sub|subu|mul|div|rem|and|andi|or|ori|xor|nor|sll|srl|sra|slt|slti|lw|sw|lb|sb|lh|sh|li|la|move|mfhi|mflo|beq|bne|blt|ble|bgt|bge|j|jal|jr|syscall|nop)\\b"
+          }
+        ]
+      }
+    }
+  }

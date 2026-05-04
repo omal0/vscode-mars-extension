@@ -16,6 +16,12 @@
 				"${workspaceFolder}/dist/**/*.js"
 			],
 			"preLaunchTask": "${defaultBuildTask}"
+		},
+		{
+			"name": "Debug MIPS with MARS",
+			"type": "mars",
+			"request": "launch",
+			"program": "${file}"
 		}
 	]
 }
