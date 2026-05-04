@@ -43,8 +43,14 @@ var RegisterItem = class extends vscode.TreeItem {
   constructor(reg) {
     super(reg.name, vscode.TreeItemCollapsibleState.None);
     this.reg = reg;
-    this.description = `0x${(reg.value >>> 0).toString(16).padStart(8, "0")} (${reg.value})`;
+    const hex = `0x${(reg.value >>> 0).toString(16).padStart(8, "0")}`;
+    this.description = `${hex} (${reg.value})`;
     this.tooltip = `${reg.name}: ${reg.value}`;
+    if (reg.changed) {
+      this.label = `${reg.name} *`;
+      this.description = `CHANGED  ${hex} (${reg.value})`;
+      this.tooltip = `${reg.name}: ${reg.value} (changed)`;
+    }
   }
 };
 var RegistersProvider = class {
@@ -52,6 +58,7 @@ var RegistersProvider = class {
     this._onDidChangeTreeData = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this.registers = [];
+    this.previousValues = /* @__PURE__ */ new Map();
   }
   getTreeItem(element) {
     return element;
@@ -60,7 +67,19 @@ var RegistersProvider = class {
     return this.registers.map((reg) => new RegisterItem(reg));
   }
   setRegisters(registers) {
-    this.registers = registers;
+    const nextRegisters = registers.map((reg) => {
+      const previousValue = this.previousValues.get(reg.name);
+      const changed = previousValue !== void 0 && previousValue !== reg.value;
+      return {
+        ...reg,
+        changed
+      };
+    });
+    this.registers = nextRegisters;
+    this.previousValues.clear();
+    for (const reg of registers) {
+      this.previousValues.set(reg.name, reg.value);
+    }
     this._onDidChangeTreeData.fire();
   }
   clear() {
@@ -75,8 +94,14 @@ var MemoryItem = class extends vscode2.TreeItem {
   constructor(mem) {
     super(mem.address, vscode2.TreeItemCollapsibleState.None);
     this.mem = mem;
-    this.description = `0x${(mem.value >>> 0).toString(16).padStart(8, "0")} (${mem.value})`;
+    const hex = `0x${(mem.value >>> 0).toString(16).padStart(8, "0")}`;
+    this.description = `${hex} (${mem.value})`;
     this.tooltip = `${mem.address}: ${mem.value}`;
+    if (mem.changed) {
+      this.label = `${mem.address} *`;
+      this.description = `CHANGED  ${hex} (${mem.value})`;
+      this.tooltip = `${mem.address}: ${mem.value} (changed)`;
+    }
   }
 };
 var MemoryProvider = class {
@@ -84,16 +109,28 @@ var MemoryProvider = class {
     this._onDidChangeTreeData = new vscode2.EventEmitter();
     this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     this.memory = [];
+    this.previousValues = /* @__PURE__ */ new Map();
   }
   getTreeItem(element) {
     return element;
   }
   getChildren() {
-    return this.memory.map((m) => new MemoryItem(m));
+    return this.memory.map((mem) => new MemoryItem(mem));
   }
-  // 👇 THIS is where setMemory goes
   setMemory(memory) {
-    this.memory = memory;
+    const nextMemory = memory.map((mem) => {
+      const previousValue = this.previousValues.get(mem.address);
+      const changed = previousValue !== void 0 && previousValue !== mem.value;
+      return {
+        ...mem,
+        changed
+      };
+    });
+    this.memory = nextMemory;
+    this.previousValues.clear();
+    for (const mem of memory) {
+      this.previousValues.set(mem.address, mem.value);
+    }
     this._onDidChangeTreeData.fire();
   }
   clear() {
@@ -278,21 +315,25 @@ function parseMarsMemory(output) {
   const lines = output.split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
-    const match = trimmed.match(
-      /^(0x[0-9a-fA-F]+)\s*(?::)?\s+(0x[0-9a-fA-F]+|-?\d+)$/
-    );
-    if (!match) {
+    const addressMatch = trimmed.match(/0x[0-9a-fA-F]{8}/);
+    if (!addressMatch) {
       continue;
     }
-    const address = match[1];
-    const rawValue = match[2];
-    if (seen.has(address)) {
+    const address = addressMatch[0];
+    const hexWords = trimmed.match(/0x[0-9a-fA-F]{1,8}/g) ?? [];
+    let valueHex;
+    for (const word of hexWords) {
+      if (word.toLowerCase() !== address.toLowerCase()) {
+        valueHex = word;
+        break;
+      }
+    }
+    if (!valueHex || seen.has(address)) {
       continue;
     }
-    const value = rawValue.startsWith("0x") || rawValue.startsWith("0X") ? parseInt(rawValue, 16) : Number(rawValue);
     memory.push({
       address,
-      value
+      value: parseInt(valueHex, 16)
     });
     seen.add(address);
   }

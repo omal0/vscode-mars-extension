@@ -202,33 +202,33 @@ function parseMarsMemory(output: string): MemoryValue[] {
 	for (const line of lines) {
 		const trimmed = line.trim();
 
-		// Common likely formats:
-		// 0x10010000    0x00000005
-		// 0x10010000: 0x00000005
-		// 0x10010000    5
-		const match = trimmed.match(
-			/^(0x[0-9a-fA-F]+)\s*(?::)?\s+(0x[0-9a-fA-F]+|-?\d+)$/
-		);
-
-		if (!match) {
+		// Match an address anywhere in the line.
+		const addressMatch = trimmed.match(/0x[0-9a-fA-F]{8}/);
+		if (!addressMatch) {
 			continue;
 		}
 
-		const address = match[1];
-		const rawValue = match[2];
+		const address = addressMatch[0];
 
-		if (seen.has(address)) {
-			continue;
+		// Find all hex words in the line.
+		const hexWords = trimmed.match(/0x[0-9a-fA-F]{1,8}/g) ?? [];
+
+		// Skip the first one if it is the address, use the next as the value.
+		let valueHex: string | undefined;
+		for (const word of hexWords) {
+			if (word.toLowerCase() !== address.toLowerCase()) {
+				valueHex = word;
+				break;
+			}
 		}
 
-		const value =
-			rawValue.startsWith('0x') || rawValue.startsWith('0X')
-				? parseInt(rawValue, 16)
-				: Number(rawValue);
+		if (!valueHex || seen.has(address)) {
+			continue;
+		}
 
 		memory.push({
 			address,
-			value
+			value: parseInt(valueHex, 16)
 		});
 		seen.add(address);
 	}

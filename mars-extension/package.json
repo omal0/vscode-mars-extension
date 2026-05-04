@@ -23,7 +23,8 @@
       },
       {
         "command": "mars-extension.runFile",
-        "title": "Mars: Run Current File"
+        "title": "Mars: Run Current File",
+        "icon": "$(play)"
       }
     ],
     "configuration": {
