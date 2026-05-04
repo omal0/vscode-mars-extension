@@ -27,6 +27,10 @@
         "command": "mars-extension.runFile",
         "title": "Mars: Run Current File",
         "icon": "$(play)"
+      },
+      {
+        "command": "mars-extension.showRegisters",
+        "title": "Mars: Show Register Viewer"
       }
     ],
     

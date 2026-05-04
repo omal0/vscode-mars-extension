@@ -36,6 +36,8 @@ __export(extension_exports, {
 module.exports = __toCommonJS(extension_exports);
 var vscode3 = __toESM(require("vscode"));
 var import_child_process = require("child_process");
+var path = __toESM(require("path"));
+var fs = __toESM(require("fs"));
 
 // src/registers/RegistersProvider.ts
 var vscode = __toESM(require("vscode"));
@@ -160,6 +162,41 @@ var MemoryProvider = class {
 };
 
 // src/extension.ts
+var registerPanel;
+var REGISTERS_TO_READ = [
+  "zero",
+  "at",
+  "v0",
+  "v1",
+  "a0",
+  "a1",
+  "a2",
+  "a3",
+  "t0",
+  "t1",
+  "t2",
+  "t3",
+  "t4",
+  "t5",
+  "t6",
+  "t7",
+  "s0",
+  "s1",
+  "s2",
+  "s3",
+  "s4",
+  "s5",
+  "s6",
+  "s7",
+  "t8",
+  "t9",
+  "k0",
+  "k1",
+  "gp",
+  "sp",
+  "fp",
+  "ra"
+];
 var INSTRUCTION_HELP = {
   add: "`add $d, $s, $t`\n\nAdds two registers: `$d = $s + $t`.",
   addi: "`addi $t, $s, imm`\n\nAdds an immediate value: `$t = $s + imm`.",
@@ -218,9 +255,11 @@ var DIRECTIVE_HELP = {
   ".globl": "Marks a label as globally visible.",
   ".word": "Stores one or more 32-bit values.",
   ".byte": "Stores one or more bytes.",
+  ".half": "Stores one or more 16-bit values.",
   ".space": "Reserves a number of bytes.",
   ".asciiz": "Stores a null-terminated string.",
-  ".ascii": "Stores a string without a null terminator."
+  ".ascii": "Stores a string without a null terminator.",
+  ".align": "Aligns the next data item."
 };
 var SYSCALL_HELP = {
   "1": "Print integer. Uses `$a0`.",
@@ -230,16 +269,10 @@ var SYSCALL_HELP = {
   "10": "Exit program.",
   "11": "Print character. Uses `$a0`."
 };
-var KNOWN_INSTRUCTIONS = /* @__PURE__ */ new Set([
-  "add",
+var KNOWN_INSTRUCTIONS = new Set(Object.keys(INSTRUCTION_HELP).concat([
   "addu",
-  "addi",
   "addiu",
-  "sub",
   "subu",
-  "mul",
-  "div",
-  "rem",
   "and",
   "andi",
   "or",
@@ -251,41 +284,18 @@ var KNOWN_INSTRUCTIONS = /* @__PURE__ */ new Set([
   "sra",
   "slt",
   "slti",
-  "lw",
-  "sw",
   "lb",
   "sb",
   "lh",
   "sh",
-  "li",
-  "la",
-  "move",
   "mfhi",
   "mflo",
-  "beq",
-  "bne",
   "blt",
   "ble",
   "bgt",
-  "bge",
-  "j",
-  "jal",
-  "jr",
-  "syscall",
-  "nop"
-]);
-var DIRECTIVES = /* @__PURE__ */ new Set([
-  ".data",
-  ".text",
-  ".globl",
-  ".word",
-  ".byte",
-  ".half",
-  ".space",
-  ".asciiz",
-  ".ascii",
-  ".align"
-]);
+  "bge"
+]));
+var DIRECTIVES = new Set(Object.keys(DIRECTIVE_HELP));
 var BRANCH_OR_JUMP_INSTRUCTIONS = /* @__PURE__ */ new Set([
   "beq",
   "bne",
@@ -296,48 +306,31 @@ var BRANCH_OR_JUMP_INSTRUCTIONS = /* @__PURE__ */ new Set([
   "j",
   "jal"
 ]);
-var REGISTERS_TO_READ = [
-  "zero",
-  "at",
-  "v0",
-  "v1",
-  "a0",
-  "a1",
-  "a2",
-  "a3",
-  "t0",
-  "t1",
-  "t2",
-  "t3",
-  "t4",
-  "t5",
-  "t6",
-  "t7",
-  "s0",
-  "s1",
-  "s2",
-  "s3",
-  "s4",
-  "s5",
-  "s6",
-  "s7",
-  "t8",
-  "t9",
-  "k0",
-  "k1",
-  "gp",
-  "sp",
-  "fp",
-  "ra"
-];
 function activate(context) {
   const output = vscode3.window.createOutputChannel("MARS");
   const registersProvider = new RegistersProvider();
   const memoryProvider = new MemoryProvider();
+  const marsDiagnostics = vscode3.languages.createDiagnosticCollection("mars");
   vscode3.window.registerTreeDataProvider("marsRegistersView", registersProvider);
   vscode3.window.registerTreeDataProvider("marsMemoryView", memoryProvider);
   const helloWorld = vscode3.commands.registerCommand("mars-extension.helloWorld", () => {
     vscode3.window.showInformationMessage("Hello World from mars-extension!");
+  });
+  const showRegisters = vscode3.commands.registerCommand("mars-extension.showRegisters", () => {
+    showRegisterPanel();
+  });
+  const runFile = vscode3.commands.registerCommand("mars-extension.runFile", async () => {
+    await runMarsFile(context, output, registersProvider, memoryProvider, marsDiagnostics);
+  });
+  const runWithInput = vscode3.commands.registerCommand("mars-extension.runWithInput", async () => {
+    const input = await vscode3.window.showInputBox({
+      prompt: "Enter stdin input for your MIPS program",
+      placeHolder: "e.g. 42 or 5 10 15"
+    });
+    if (input === void 0) {
+      return;
+    }
+    await runMarsFile(context, output, registersProvider, memoryProvider, marsDiagnostics, input + "\n");
   });
   const hoverProvider = vscode3.languages.registerHoverProvider("mips", {
     provideHover(document, position) {
@@ -371,54 +364,38 @@ ${SYSCALL_HELP[word]}`),
   const completionProvider = vscode3.languages.registerCompletionItemProvider(
     "mips",
     {
-      provideCompletionItems(document, position) {
+      provideCompletionItems(document) {
         const completions = [];
         for (const [instruction, help] of Object.entries(INSTRUCTION_HELP)) {
-          const item = new vscode3.CompletionItem(
-            instruction,
-            vscode3.CompletionItemKind.Function
-          );
+          const item = new vscode3.CompletionItem(instruction, vscode3.CompletionItemKind.Function);
           item.detail = "MIPS instruction";
           item.documentation = new vscode3.MarkdownString(help);
-          item.insertText = instruction;
+          item.insertText = getInstructionSnippet(instruction);
           completions.push(item);
         }
         for (const [register, help] of Object.entries(REGISTER_HELP)) {
-          const item = new vscode3.CompletionItem(
-            register,
-            vscode3.CompletionItemKind.Variable
-          );
+          const item = new vscode3.CompletionItem(register, vscode3.CompletionItemKind.Variable);
           item.detail = "MIPS register";
           item.documentation = new vscode3.MarkdownString(help);
           item.insertText = register;
           completions.push(item);
         }
         for (const [directive, help] of Object.entries(DIRECTIVE_HELP)) {
-          const item = new vscode3.CompletionItem(
-            directive,
-            vscode3.CompletionItemKind.Keyword
-          );
+          const item = new vscode3.CompletionItem(directive, vscode3.CompletionItemKind.Keyword);
           item.detail = "MIPS directive";
           item.documentation = new vscode3.MarkdownString(help);
           item.insertText = directive;
           completions.push(item);
         }
         for (const [code, help] of Object.entries(SYSCALL_HELP)) {
-          const item = new vscode3.CompletionItem(
-            `syscall ${code}`,
-            vscode3.CompletionItemKind.Value
-          );
+          const item = new vscode3.CompletionItem(`syscall ${code}`, vscode3.CompletionItemKind.Value);
           item.detail = `Syscall ${code}`;
           item.documentation = new vscode3.MarkdownString(help);
           item.insertText = code;
           completions.push(item);
         }
-        const labels = collectLabels(document);
-        for (const label of labels) {
-          const item = new vscode3.CompletionItem(
-            label,
-            vscode3.CompletionItemKind.Reference
-          );
+        for (const label of collectLabels(document)) {
+          const item = new vscode3.CompletionItem(label, vscode3.CompletionItemKind.Reference);
           item.detail = "MIPS label";
           item.insertText = label;
           completions.push(item);
@@ -429,87 +406,16 @@ ${SYSCALL_HELP[word]}`),
     "$",
     "."
   );
-  context.subscriptions.push(completionProvider);
-  context.subscriptions.push(hoverProvider);
-  const diagnosticCollection = vscode3.languages.createDiagnosticCollection("mars");
-  const marsDiagnostics = vscode3.languages.createDiagnosticCollection("mars");
-  context.subscriptions.push(marsDiagnostics);
   function refreshStaticDiagnostics(document) {
     if (document.languageId !== "mips") {
       marsDiagnostics.delete(document.uri);
       return;
     }
-    const diagnostics = collectStaticDiagnostics(document);
-    marsDiagnostics.set(document.uri, diagnostics);
+    marsDiagnostics.set(document.uri, collectStaticDiagnostics(document));
   }
   if (vscode3.window.activeTextEditor) {
     refreshStaticDiagnostics(vscode3.window.activeTextEditor.document);
   }
-  context.subscriptions.push(
-    vscode3.workspace.onDidOpenTextDocument(refreshStaticDiagnostics),
-    vscode3.workspace.onDidChangeTextDocument((event) => {
-      refreshStaticDiagnostics(event.document);
-    }),
-    vscode3.workspace.onDidCloseTextDocument((document) => {
-      marsDiagnostics.delete(document.uri);
-    })
-  );
-  function refreshDiagnostics(document) {
-    if (document.languageId !== "mips") {
-      diagnosticCollection.delete(document.uri);
-      return;
-    }
-    const diagnostics = [];
-    for (let lineIndex = 0; lineIndex < document.lineCount; lineIndex++) {
-      const line = document.lineAt(lineIndex);
-      const textWithoutComment = line.text.split("#")[0].trim();
-      if (!textWithoutComment) {
-        continue;
-      }
-      let working = textWithoutComment;
-      const labelMatch = working.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/);
-      if (labelMatch) {
-        working = labelMatch[2].trim();
-        if (!working) {
-          continue;
-        }
-      }
-      const firstToken = working.split(/\s+/)[0];
-      if (DIRECTIVES.has(firstToken)) {
-        continue;
-      }
-      if (!KNOWN_INSTRUCTIONS.has(firstToken)) {
-        const start = line.text.indexOf(firstToken);
-        const range = new vscode3.Range(
-          lineIndex,
-          start,
-          lineIndex,
-          start + firstToken.length
-        );
-        diagnostics.push(
-          new vscode3.Diagnostic(
-            range,
-            `Unknown MIPS instruction or directive: ${firstToken}`,
-            vscode3.DiagnosticSeverity.Error
-          )
-        );
-      }
-    }
-    diagnosticCollection.set(document.uri, diagnostics);
-  }
-  if (vscode3.window.activeTextEditor) {
-    refreshDiagnostics(vscode3.window.activeTextEditor.document);
-  }
-  context.subscriptions.push(
-    diagnosticCollection,
-    vscode3.workspace.onDidOpenTextDocument(refreshDiagnostics),
-    vscode3.workspace.onDidChangeTextDocument((event) => {
-      refreshDiagnostics(event.document);
-    }),
-    vscode3.workspace.onDidCloseTextDocument((document) => {
-      diagnosticCollection.delete(document.uri);
-    })
-  );
   const debugConfigProvider = vscode3.debug.registerDebugConfigurationProvider("mars", {
     resolveDebugConfiguration(folder, config) {
       if (!config.type) {
@@ -530,121 +436,6 @@ ${SYSCALL_HELP[word]}`),
       return config;
     }
   });
-  context.subscriptions.push(debugConfigProvider);
-  const runFile = vscode3.commands.registerCommand("mars-extension.runFile", async () => {
-    const editor = vscode3.window.activeTextEditor;
-    if (!editor) {
-      vscode3.window.showErrorMessage("No active editor.");
-      return;
-    }
-    const document = editor.document;
-    if (document.uri.scheme !== "file") {
-      vscode3.window.showErrorMessage("Please switch to a saved .asm file before running.");
-      return;
-    }
-    if (document.isUntitled) {
-      vscode3.window.showErrorMessage("Please save the file first.");
-      return;
-    }
-    const filePath = document.uri.fsPath;
-    marsDiagnostics.delete(document.uri);
-    if (!filePath.endsWith(".asm")) {
-      vscode3.window.showErrorMessage("Please open a .asm file.");
-      return;
-    }
-    await document.save();
-    const config = vscode3.workspace.getConfiguration("mars-extension");
-    const memoryStart = config.get("memoryStartAddress", "0x10010000");
-    const memoryEnd = config.get("memoryEndAddress", "0x10010040");
-    const memoryRange = `${memoryStart}-${memoryEnd}`;
-    const javaPath = config.get("javaPath", "java");
-    const configuredJarPath = config.get("marsJarPath", "").trim();
-    const bundledJarPath = vscode3.Uri.joinPath(
-      context.extensionUri,
-      "resources",
-      "Mars4_5.jar"
-    ).fsPath;
-    const marsJarPath = configuredJarPath || bundledJarPath;
-    output.clear();
-    output.appendLine(`Running ${filePath}...`);
-    output.appendLine(`Java: ${javaPath}`);
-    output.appendLine(`Jar: ${marsJarPath}`);
-    output.appendLine(`File: ${filePath}`);
-    output.appendLine("");
-    output.show(true);
-    registersProvider.clear();
-    memoryProvider.clear();
-    const args = [
-      "-jar",
-      marsJarPath,
-      "nc",
-      "hex",
-      "me",
-      ...REGISTERS_TO_READ,
-      ...memoryRange,
-      filePath
-    ];
-    output.appendLine(`Args: ${args.join(" ")}`);
-    output.appendLine("");
-    const child = (0, import_child_process.spawn)(javaPath, args);
-    let programOutput = "";
-    let marsOutput = "";
-    child.stdout.on("data", (data) => {
-      const text = data.toString();
-      programOutput += text;
-      output.append(text);
-    });
-    child.stderr.on("data", (data) => {
-      marsOutput += data.toString();
-    });
-    child.on("error", (error) => {
-      output.appendLine(`
-Failed to start MARS: ${error.message}`);
-      vscode3.window.showErrorMessage(`Failed to start MARS: ${error.message}`);
-    });
-    child.on("close", (code) => {
-      output.appendLine(`
-Process exited with code ${code ?? "null"}`);
-      const errors = parseMarsErrors(marsOutput, document);
-      const staticDiagnostics = collectStaticDiagnostics(document);
-      const marsErrors = parseMarsErrors(marsOutput, document);
-      const displayFormat = config.get("displayFormat", "both");
-      const registers = parseMarsRegisters(marsOutput).map((reg) => ({
-        ...reg,
-        displayFormat
-      }));
-      const memory = parseMarsMemory(marsOutput).map((mem) => ({
-        ...mem,
-        displayFormat
-      }));
-      marsDiagnostics.set(document.uri, [
-        ...staticDiagnostics,
-        ...marsErrors
-      ]);
-      if (errors.length > 0) {
-        marsDiagnostics.set(document.uri, errors);
-        vscode3.window.showErrorMessage(`MARS found ${errors.length} error(s).`);
-      } else {
-        marsDiagnostics.delete(document.uri);
-      }
-      if (registers.length > 0) {
-        registersProvider.setRegisters(registers);
-      } else {
-        output.appendLine("No register values were parsed from MARS messages.");
-      }
-      if (memory.length > 0) {
-        memoryProvider.setMemory(memory);
-      } else {
-        output.appendLine("No memory values were parsed from MARS messages.");
-      }
-      if (registers.length === 0 && memory.length === 0) {
-        output.appendLine("");
-        vscode3.window.showWarningMessage(
-          "MARS ran, but the register/memory dump format did not match the parser yet."
-        );
-      }
-    });
-  });
   const debugAdapterFactory = vscode3.debug.registerDebugAdapterDescriptorFactory("mars", {
     createDebugAdapterDescriptor() {
       return new vscode3.DebugAdapterExecutable("node", [
@@ -652,10 +443,282 @@ Process exited with code ${code ?? "null"}`);
       ]);
     }
   });
-  context.subscriptions.push(debugAdapterFactory);
-  context.subscriptions.push(helloWorld, runFile, output, debugAdapterFactory);
+  context.subscriptions.push(
+    helloWorld,
+    showRegisters,
+    runFile,
+    runWithInput,
+    output,
+    marsDiagnostics,
+    hoverProvider,
+    completionProvider,
+    debugConfigProvider,
+    debugAdapterFactory,
+    vscode3.workspace.onDidOpenTextDocument(refreshStaticDiagnostics),
+    vscode3.workspace.onDidChangeTextDocument((event) => refreshStaticDiagnostics(event.document)),
+    vscode3.workspace.onDidCloseTextDocument((document) => marsDiagnostics.delete(document.uri))
+  );
 }
 function deactivate() {
+}
+async function runMarsFile(context, output, registersProvider, memoryProvider, marsDiagnostics, stdinInput) {
+  const editor = vscode3.window.activeTextEditor;
+  if (!editor) {
+    vscode3.window.showErrorMessage("No active editor.");
+    return;
+  }
+  const document = editor.document;
+  if (document.uri.scheme !== "file") {
+    vscode3.window.showErrorMessage("Please switch to a saved .asm file before running.");
+    return;
+  }
+  if (document.isUntitled) {
+    vscode3.window.showErrorMessage("Please save the file first.");
+    return;
+  }
+  const filePath = document.uri.fsPath;
+  if (!filePath.endsWith(".asm") && !filePath.endsWith(".s")) {
+    vscode3.window.showErrorMessage("Please open a .asm or .s file.");
+    return;
+  }
+  await document.save();
+  const config = vscode3.workspace.getConfiguration("mars-extension");
+  const javaPath = config.get("javaPath", "java");
+  const configuredJarPath = config.get("marsJarPath", "").trim();
+  const displayFormat = config.get("displayFormat", "both");
+  const memoryStart = config.get("memoryStartAddress", "0x10010000");
+  const memoryEnd = config.get("memoryEndAddress", "0x10010040");
+  const memoryRange = `${memoryStart}-${memoryEnd}`;
+  const bundledJarPath = vscode3.Uri.joinPath(
+    context.extensionUri,
+    "resources",
+    "Mars4_5.jar"
+  ).fsPath;
+  const marsJarPath = configuredJarPath || bundledJarPath;
+  if (!fs.existsSync(marsJarPath)) {
+    vscode3.window.showErrorMessage(`Mars4_5.jar not found at: ${marsJarPath}`);
+    return;
+  }
+  marsDiagnostics.delete(document.uri);
+  output.clear();
+  output.appendLine(`\u25B6 Running: ${path.basename(filePath)}`);
+  output.appendLine(`JAR : ${marsJarPath}`);
+  output.appendLine(`Java: ${javaPath}`);
+  output.appendLine("\u2500".repeat(50));
+  output.show(true);
+  registersProvider.clear();
+  memoryProvider.clear();
+  const args = [
+    "-jar",
+    marsJarPath,
+    "nc",
+    "hex",
+    "me",
+    ...REGISTERS_TO_READ,
+    memoryRange,
+    filePath
+  ];
+  const child = (0, import_child_process.spawn)(javaPath, args);
+  if (stdinInput !== void 0) {
+    child.stdin.write(stdinInput);
+    child.stdin.end();
+  }
+  let marsOutput = "";
+  child.stdout.on("data", (data) => {
+    output.append(data.toString());
+  });
+  child.stderr.on("data", (data) => {
+    marsOutput += data.toString();
+  });
+  child.on("error", (error) => {
+    output.appendLine(`
+Failed to start MARS: ${error.message}`);
+    vscode3.window.showErrorMessage(`Failed to start MARS: ${error.message}`);
+  });
+  child.on("close", (code) => {
+    output.appendLine("\u2500".repeat(50));
+    output.appendLine(`Process exited with code ${code ?? "null"}`);
+    const staticDiagnostics = collectStaticDiagnostics(document);
+    const marsErrors = parseMarsErrors(marsOutput, document);
+    const allDiagnostics = [...staticDiagnostics, ...marsErrors];
+    marsDiagnostics.set(document.uri, allDiagnostics);
+    if (marsErrors.length > 0) {
+      vscode3.window.showErrorMessage(`MARS found ${marsErrors.length} error(s).`);
+    }
+    const registers = parseMarsRegisters(marsOutput).map((reg) => ({
+      ...reg,
+      displayFormat
+    }));
+    const memory = parseMarsMemory(marsOutput).map((mem) => ({
+      ...mem,
+      displayFormat
+    }));
+    if (registers.length > 0) {
+      registersProvider.setRegisters(registers);
+      if (registerPanel) {
+        registerPanel.webview.postMessage({
+          type: "registers",
+          data: registers
+        });
+      }
+    } else {
+      output.appendLine("No register values were parsed from MARS messages.");
+    }
+    if (memory.length > 0) {
+      memoryProvider.setMemory(memory);
+    } else {
+      output.appendLine("No memory values were parsed from MARS messages.");
+    }
+    if (registers.length === 0 && memory.length === 0) {
+      vscode3.window.showWarningMessage(
+        "MARS ran, but the register/memory dump format did not match the parser."
+      );
+    }
+  });
+}
+function showRegisterPanel() {
+  if (registerPanel) {
+    registerPanel.reveal(vscode3.ViewColumn.Two);
+    return;
+  }
+  registerPanel = vscode3.window.createWebviewPanel(
+    "marsRegisters",
+    "MARS Register State",
+    vscode3.ViewColumn.Two,
+    { enableScripts: true }
+  );
+  registerPanel.webview.html = getRegisterHtml();
+  registerPanel.onDidDispose(() => {
+    registerPanel = void 0;
+  });
+}
+function getRegisterHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+	body {
+		font-family: var(--vscode-editor-font-family);
+		background: var(--vscode-editor-background);
+		color: var(--vscode-editor-foreground);
+		padding: 12px;
+	}
+	h2 {
+		color: var(--vscode-textLink-foreground);
+		margin-bottom: 12px;
+	}
+	table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 13px;
+	}
+	th {
+		background: var(--vscode-editorGroupHeader-tabsBackground);
+		color: var(--vscode-symbolIcon-variableForeground);
+		padding: 6px 10px;
+		text-align: left;
+		border-bottom: 1px solid var(--vscode-panel-border);
+	}
+	td {
+		padding: 5px 10px;
+		border-bottom: 1px solid var(--vscode-panel-border);
+	}
+	tr:hover td {
+		background: var(--vscode-list-hoverBackground);
+	}
+	.val {
+		color: var(--vscode-debugTokenExpression-number);
+	}
+	.changed td {
+		background: rgba(255, 204, 0, 0.12);
+	}
+	#placeholder {
+		color: var(--vscode-descriptionForeground);
+		margin-top: 20px;
+	}
+</style>
+</head>
+<body>
+	<h2>\u2699 MARS Register State</h2>
+
+	<p id="placeholder">Run a .asm file to see register values here.</p>
+
+	<table id="regTable" style="display:none">
+		<thead>
+			<tr>
+				<th>Register</th>
+				<th>Value (dec)</th>
+				<th>Value (hex)</th>
+			</tr>
+		</thead>
+		<tbody id="regBody"></tbody>
+	</table>
+
+	<script>
+		window.addEventListener('message', event => {
+			const msg = event.data;
+
+			if (msg.type !== 'registers') {
+				return;
+			}
+
+			const tbody = document.getElementById('regBody');
+			const table = document.getElementById('regTable');
+			const placeholder = document.getElementById('placeholder');
+
+			tbody.innerHTML = '';
+
+			msg.data.forEach(r => {
+				const hex = '0x' + (r.value >>> 0).toString(16).padStart(8, '0');
+				const changedClass = r.changed ? 'changed' : '';
+
+				tbody.innerHTML += \`
+					<tr class="\${changedClass}">
+						<td>\${r.name}</td>
+						<td class="val">\${r.value}</td>
+						<td class="val">\${hex}</td>
+					</tr>
+				\`;
+			});
+
+			table.style.display = 'table';
+			placeholder.style.display = 'none';
+		});
+	</script>
+</body>
+</html>`;
+}
+function getInstructionSnippet(instruction) {
+  switch (instruction) {
+    case "addi":
+      return new vscode3.SnippetString("addi ${1:$t0}, ${2:$t0}, ${3:1}");
+    case "lw":
+      return new vscode3.SnippetString("lw ${1:$t0}, ${2:0}(${3:$sp})");
+    case "sw":
+      return new vscode3.SnippetString("sw ${1:$t0}, ${2:0}(${3:$sp})");
+    case "beq":
+      return new vscode3.SnippetString("beq ${1:$t0}, ${2:$t1}, ${3:label}");
+    case "bne":
+      return new vscode3.SnippetString("bne ${1:$t0}, ${2:$t1}, ${3:label}");
+    case "li":
+      return new vscode3.SnippetString("li ${1:$v0}, ${2:1}");
+    case "la":
+      return new vscode3.SnippetString("la ${1:$a0}, ${2:label}");
+    default:
+      return instruction;
+  }
+}
+function collectLabels(document) {
+  const labels = [];
+  for (let i = 0; i < document.lineCount; i++) {
+    const line = document.lineAt(i).text.split("#")[0];
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):/);
+    if (match) {
+      labels.push(match[1]);
+    }
+  }
+  return labels;
 }
 function collectStaticDiagnostics(document) {
   const diagnostics = [];
@@ -672,20 +735,13 @@ function collectStaticDiagnostics(document) {
     if (labelMatch) {
       const label = labelMatch[1];
       const labelStart = line.text.indexOf(label);
-      const labelRange = new vscode3.Range(
-        lineIndex,
-        labelStart,
-        lineIndex,
-        labelStart + label.length
-      );
+      const labelRange = new vscode3.Range(lineIndex, labelStart, lineIndex, labelStart + label.length);
       if (labels.has(label)) {
-        diagnostics.push(
-          new vscode3.Diagnostic(
-            labelRange,
-            `Duplicate label: ${label}`,
-            vscode3.DiagnosticSeverity.Error
-          )
-        );
+        diagnostics.push(new vscode3.Diagnostic(
+          labelRange,
+          `Duplicate label: ${label}`,
+          vscode3.DiagnosticSeverity.Error
+        ));
       } else {
         labels.set(label, labelRange);
       }
@@ -700,61 +756,33 @@ function collectStaticDiagnostics(document) {
     }
     if (!KNOWN_INSTRUCTIONS.has(firstToken)) {
       const start = line.text.indexOf(firstToken);
-      const range = new vscode3.Range(
-        lineIndex,
-        start,
-        lineIndex,
-        start + firstToken.length
-      );
-      diagnostics.push(
-        new vscode3.Diagnostic(
-          range,
-          `Unknown MIPS instruction or directive: ${firstToken}`,
-          vscode3.DiagnosticSeverity.Error
-        )
-      );
+      const range = new vscode3.Range(lineIndex, start, lineIndex, start + firstToken.length);
+      diagnostics.push(new vscode3.Diagnostic(
+        range,
+        `Unknown MIPS instruction or directive: ${firstToken}`,
+        vscode3.DiagnosticSeverity.Error
+      ));
       continue;
     }
     if (BRANCH_OR_JUMP_INSTRUCTIONS.has(firstToken)) {
       const possibleLabel = getPossibleBranchLabel(firstToken, working);
       if (possibleLabel) {
         const labelStart = line.text.indexOf(possibleLabel);
-        const range = new vscode3.Range(
-          lineIndex,
-          labelStart,
-          lineIndex,
-          labelStart + possibleLabel.length
-        );
-        labelUses.push({
-          label: possibleLabel,
-          range
-        });
+        const range = new vscode3.Range(lineIndex, labelStart, lineIndex, labelStart + possibleLabel.length);
+        labelUses.push({ label: possibleLabel, range });
       }
     }
   }
   for (const use of labelUses) {
     if (!labels.has(use.label)) {
-      diagnostics.push(
-        new vscode3.Diagnostic(
-          use.range,
-          `Undefined label: ${use.label}`,
-          vscode3.DiagnosticSeverity.Error
-        )
-      );
+      diagnostics.push(new vscode3.Diagnostic(
+        use.range,
+        `Undefined label: ${use.label}`,
+        vscode3.DiagnosticSeverity.Error
+      ));
     }
   }
   return diagnostics;
-}
-function collectLabels(document) {
-  const labels = [];
-  for (let i = 0; i < document.lineCount; i++) {
-    const line = document.lineAt(i).text.split("#")[0];
-    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):/);
-    if (match) {
-      labels.push(match[1]);
-    }
-  }
-  return labels;
 }
 function getPossibleBranchLabel(instruction, line) {
   const withoutInstruction = line.slice(instruction.length).trim();
@@ -844,20 +872,19 @@ function parseMarsErrors(output, document) {
     }
     const textLine = document.lineAt(zeroBasedLine);
     const startChar = Math.min(zeroBasedColumn, textLine.text.length);
-    const endChar = Math.min(startChar + 1, textLine.text.length);
-    const range = new vscode3.Range(
+    const range = document.getWordRangeAtPosition(
+      new vscode3.Position(zeroBasedLine, startChar)
+    ) ?? new vscode3.Range(
       zeroBasedLine,
       startChar,
       zeroBasedLine,
-      endChar
+      Math.min(startChar + 1, textLine.text.length)
     );
-    diagnostics.push(
-      new vscode3.Diagnostic(
-        range,
-        message || trimmed,
-        vscode3.DiagnosticSeverity.Error
-      )
-    );
+    diagnostics.push(new vscode3.Diagnostic(
+      range,
+      message || trimmed,
+      vscode3.DiagnosticSeverity.Error
+    ));
   }
   return diagnostics;
 }
