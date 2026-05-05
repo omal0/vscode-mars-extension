@@ -1,71 +1,74 @@
-# mars-extension README
+# MARS Extension (MIPS for VS Code)
 
-This is the README for your extension "mars-extension". After writing up a brief description, we recommend including the following sections.
-
-## Features
-
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
-
-For example if there is an image subfolder under your extension project workspace:
-
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+Run, inspect, and learn MIPS assembly directly inside VS Code using the MARS simulator.
 
 ---
 
-## Following extension guidelines
+## Features
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+### Run MIPS Programs
+- Run `.asm` / `.s` files with one click
+- Uses MARS under the hood
+- Optional stdin input support
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+### Register Viewer
+- View CPU registers in Explorer
+- See values in:
+  - Hex
+  - Decimal
+  - Both
+- Highlights changed registers between runs
+- Optional detailed webview panel
 
-## Working with Markdown
+### Memory Viewer
+- Inspect memory ranges
+- Configurable start/end addresses
+- Change highlighting
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+### Syntax Support
+- Syntax highlighting for MIPS
+- Instruction, register, directive coloring
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
+### IntelliSense
+- Auto-complete:
+  - Instructions
+  - Registers
+  - Directives
+  - Labels
+- Snippets for common instructions
 
-## For more information
+### Hover Info
+- Hover instructions → explanation
+- Hover registers → description
+- Hover syscalls → behavior
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+### Diagnostics
+- Unknown instructions
+- Duplicate labels
+- Undefined labels
+- Parsed MARS errors
 
-**Enjoy!**
+---
+
+## Getting Started
+
+1. Install the extension
+2. Open a `.asm` or `.s` file
+3. Click ▶ **Run MARS**
+4. View:
+   - Output panel
+   - Registers panel
+   - Memory panel
+
+---
+
+## Configuration
+
+Open VS Code settings and configure:
+
+```json
+"mars-extension.javaPath": "java",
+"mars-extension.marsJarPath": "",
+"mars-extension.displayFormat": "both",
+"mars-extension.memoryStartAddress": "0x10010000",
+"mars-extension.memoryEndAddress": "0x10010040"

@@ -1,13 +1,16 @@
 {
   "name": "mars-extension",
-  "displayName": "mars-extension",
+  "displayName": "MARS MIPS",
   "description": "Runs MIPS code in VSCode using MARS simulator.",
   "version": "0.0.1",
+  "publisher": "omal0",
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages",
+    "Debuggers",
+    "Education"
   ],
   "activationEvents": [
     "onCommand:mars-extension.helloWorld",
@@ -16,13 +19,24 @@
     "onView:marsMemoryView",
     "onDebug"
   ],
+  "keywords": [
+    "mips",
+    "mars",
+    "assembly",
+    "simulator",
+    "education"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omal0/vscode-mars-extension"
+  },
+  "homepage": "https://github.com/omal0/vscode-mars-extension",
+  "bugs": {
+    "url": "https://github.com/omal0/vscode-mars-extension/issues"
+  },
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "mars-extension.helloWorld",
-        "title": "Hello World"
-      },
       {
         "command": "mars-extension.runFile",
         "title": "Mars: Run Current File",
@@ -81,34 +95,37 @@
       "editor/title": [
       {
         "command": "mars-extension.runFile",
-        "when": "resourceExtname == .asm",
+        "when": "resourceExtname == .asm || resourceExtname == .s",
         "group": "navigation"
       }
     ]
   },
     "debuggers": [
-  {
-    "type": "mars",
-    "label": "MARS Debugger",
-    "configurationAttributes": {
-      "launch": {
-        "properties": {
-          "program": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "initialConfigurations": [
       {
         "type": "mars",
-        "request": "launch",
-        "name": "Debug MIPS with MARS",
-        "program": "${file}"
+        "label": "MARS Debugger",
+        "languages": ["mips"],
+        "configurationAttributes": {
+          "launch": {
+            "required": ["program"],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path to the MIPS assembly file."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "mars",
+            "request": "launch",
+            "name": "Debug MIPS with MARS",
+            "program": "${file}"
+          }
+        ]
       }
-    ]
-  }
-  ],
+    ],
   "languages": [
     {
       "id": "mips",
