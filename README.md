@@ -2,6 +2,9 @@
 
 Run, inspect, and learn MIPS assembly directly inside VS Code using the MARS simulator.
 
+Available in VSCode Extensions Marketplace! 
+
+Download link: https://marketplace.visualstudio.com/items?itemName=omal0.mars-extension
 ---
 
 ## Features
